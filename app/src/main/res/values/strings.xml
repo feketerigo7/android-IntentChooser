@@ -1,3 +1,13 @@
 <resources>
-    <string name="app_name">IntentChooser</string>
+    <string name="app_name">Intent Chooser 테스트</string>
+    
+    <string-array name="mime_type">
+        <item>*/*</item>
+        <item>text/html</item>
+        <item>text/plain</item>
+        <item>audio/*</item>
+        <item>video/*</item>
+        <item>image/*</item>
+        <item>application/*</item>
+    </string-array>
 </resources>
