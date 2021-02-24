@@ -1,10 +1,18 @@
 package com.tobesoft.intentchooser;
 
+// 참고 소스
+// https://developer.android.com/training/camera/photobasics#java
+// https://developer.android.com/about/versions/11/privacy/storage
+
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.content.FileProvider;
 
+import android.app.Activity;
+import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.provider.MediaStore;
@@ -17,6 +25,10 @@ import android.widget.Toast;
 import com.tobesoft.intentchooser.databinding.ActivityMainBinding;
 
 import java.io.File;
+import java.io.IOException;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.Locale;
 
 public class MainActivity extends AppCompatActivity {
     final static String LOG_TAG = "IntentChooser";
@@ -25,8 +37,8 @@ public class MainActivity extends AppCompatActivity {
 
     private ActivityMainBinding binding;
 
-    private String mImageFileName = "";
-    private String mVideoFileName = "";
+    private String mPhotoFileName = "";
+    private String mMovieFileName = "";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -36,22 +48,49 @@ public class MainActivity extends AppCompatActivity {
         View view = binding.getRoot();
         setContentView(view);
 
+        final Context context = this;
+
         Button getContentButton = binding.getContentButton;
         getContentButton.setOnClickListener(new Button.OnClickListener() {
             @Override
             public void onClick(View v) {
                 Intent contentIntent = new Intent(Intent.ACTION_GET_CONTENT);
+
+                contentIntent.addCategory(Intent.CATEGORY_OPENABLE);
+                contentIntent.setType("*/*");
+
                 contentIntent.setType(binding.mimetypeSpinner.getSelectedItem().toString());
                 contentIntent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, binding.multiselectCheckbox.isChecked());
 
                 Intent cameraIntent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
                 Intent camcorderIntent = new Intent(MediaStore.ACTION_VIDEO_CAPTURE);
 
-                setOutputFileName();
-                Uri imageFileNameUri = Uri.fromFile(new File(mImageFileName));
-                Uri videoFileNameUri = Uri.fromFile(new File(mVideoFileName));
+                File photoFile = null, movieFile = null;
+                Uri imageFileNameUri, movieFileNameUri;
+                try {
+                    photoFile = createMediaFile(Environment.DIRECTORY_PICTURES, ".jpg");
+                    movieFile = createMediaFile(Environment.DIRECTORY_MOVIES, ".mp4");
+                } catch (IOException ex) {
+                    // Error occurred while creating the File
+                }
+
+                // Android 24 부터 FileProvider를 지원 한다.
+                if (Build.VERSION.SDK_INT > Build.VERSION_CODES.N) {
+                    assert photoFile != null;
+                    imageFileNameUri = FileProvider.getUriForFile(getBaseContext(),
+                            "com.tobesoft.intentchooser.fileprovider",
+                            photoFile);
+                    assert movieFile != null;
+                    movieFileNameUri = FileProvider.getUriForFile(getBaseContext(),
+                            "com.tobesoft.intentchooser.fileprovider",
+                            movieFile);
+                } else {
+                    imageFileNameUri = Uri.fromFile(photoFile);
+                    movieFileNameUri = Uri.fromFile(movieFile);
+                }
+
                 cameraIntent.putExtra(android.provider.MediaStore.EXTRA_OUTPUT, imageFileNameUri);
-                camcorderIntent.putExtra(android.provider.MediaStore.EXTRA_OUTPUT, videoFileNameUri);
+                camcorderIntent.putExtra(android.provider.MediaStore.EXTRA_OUTPUT, movieFileNameUri);
 
                 Intent chooser  = new Intent(Intent.ACTION_CHOOSER);
                 chooser.putExtra(Intent.EXTRA_INTENT, contentIntent);
@@ -61,11 +100,6 @@ public class MainActivity extends AppCompatActivity {
                 chooser.putExtra(Intent.EXTRA_INITIAL_INTENTS, intentArray);
 
                 startActivityForResult(chooser, READ_REQUEST_CODE);
-//                Intent contentCreate = new Intent(Intent.ACTION_CREATE_DOCUMENT);
-//                contentCreate.addCategory(Intent.CATEGORY_OPENABLE);
-//                contentCreate.setType("application/pdf");
-//                contentCreate.putExtra(Intent.EXTRA_TITLE, "invoice.pdf");
-//                startActivityForResult(contentCreate, READ_REQUEST_CODE);
             }
         });
 
@@ -81,10 +115,10 @@ public class MainActivity extends AppCompatActivity {
                 assert data != null;
 
                 if (isCameraResult(data)) {
-                    binding.uriStringTextview.setText(mImageFileName);
+                    binding.uriStringTextview.setText(mPhotoFileName);
                     return;
                 } else if (isCamcorderResult(data)) {
-                    binding.uriStringTextview.setText(mVideoFileName);
+                    binding.uriStringTextview.setText(mMovieFileName);
                     return;
                 }
 
@@ -104,6 +138,8 @@ public class MainActivity extends AppCompatActivity {
                 Toast.makeText(this, "작업이 취소 되었습니다.", Toast.LENGTH_SHORT).show();
             }
         }
+
+        // 임시 파일 삭제는 여기서 한다.
     }
 
     // mime 타입을 선택하기 위한 스피너 초기화
@@ -120,23 +156,54 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private boolean isCameraResult(Intent data) {
-        File file = new File(mImageFileName);
-        return file.exists();
+        File file = new File(mPhotoFileName);
+        if (file.exists() && file.length() == 0) {
+            return false;
+        } else {
+            return file.exists();
+        }
     }
 
     private boolean isCamcorderResult(Intent data) {
-        File file = new File(mVideoFileName);
-        return file.exists();
-    }
-
-    // 카메라 및 캠코더로부터 생성되는 파일명 설정
-    private void setOutputFileName() {
-        if (!Environment.getExternalStorageState().equals(Environment.MEDIA_MOUNTED)) {
-            mImageFileName = getBaseContext().getFilesDir() + "/tmp_" + System.currentTimeMillis() + ".jpg";
-            mVideoFileName = getBaseContext().getFilesDir() + "/tmp_" + String.valueOf(System.currentTimeMillis()) + ".mp4";
+        File file = new File(mMovieFileName);
+        if (file.exists() && file.length() == 0) {
+            return false;
         } else {
-            mImageFileName = Environment.getExternalStorageDirectory().getAbsolutePath() + "/tmp_" + System.currentTimeMillis() + ".jpg";
-            mVideoFileName = Environment.getExternalStorageDirectory().getAbsolutePath() + "/tmp_" + System.currentTimeMillis() + ".mp4";
+            return file.exists();
         }
     }
+
+    private File createMediaFile(String type, String suffix) throws IOException {
+        String timeStamp = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(new Date());
+        String mediaFileName = "tmp_" + timeStamp;
+        File storageDir = getExternalFilesDir(type);
+
+        File mediaFile =  File.createTempFile(
+                mediaFileName,  /* prefix */
+                suffix,
+                storageDir      /* directory */
+        );
+
+        if (type.equals(Environment.DIRECTORY_PICTURES)) {
+            mPhotoFileName = mediaFile.getAbsolutePath();
+        } else {
+            mMovieFileName = mediaFile.getAbsolutePath();
+        }
+
+        return mediaFile;
+    }
+
+//    private void tempFileDelete(String path) {
+//        File delFile = new File(path);
+//        if(delFile.exists()) {
+//            if(delFile.delete()){
+//                String selection = MediaStore.Images.Media.DATA + " =?";
+//                String[] selectionArgs = {path};
+//                Uri uri = MediaStore.Images.Media.EXTERNAL_CONTENT_URI; //video도 체크해야하나?
+//                int count = this.getContentResolver().delete(uri, selection, selectionArgs);
+//
+//                Log.i(LOG_TAG, "Delete temp image file path: " + path + " provider delete count : " + count);
+//            }
+//        }
+//    }
 }
